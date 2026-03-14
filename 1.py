@@ -20,16 +20,6 @@ def parse_args() -> argparse.Namespace:
         default="",
         help="사이트 검색어 (searchVal)",
     )
-    parser.add_argument(
-        "--date-from",
-        default="",
-        help="작성일 시작일 (YYYY-MM-DD)",
-    )
-    parser.add_argument(
-        "--date-to",
-        default="",
-        help="작성일 종료일 (YYYY-MM-DD)",
-    )
     return parser.parse_args()
 
 
@@ -40,8 +30,6 @@ if __name__ == "__main__":
         result = get_kw_notices(
             search_key=args.search_key,
             search_val=args.search_val,
-            date_from=args.date_from,
-            date_to=args.date_to,
         )
     except ValueError as exc:
         raise SystemExit(f"입력값 오류: {exc}") from exc

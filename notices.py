@@ -1,5 +1,4 @@
 import re
-from datetime import date
 from urllib.parse import urlparse
 
 import requests
@@ -17,6 +16,7 @@ DEFAULT_HEADERS = {
 }
 DATE_PATTERN = re.compile(r"작성일\s+(\d{4}-\d{2}-\d{2})")
 WHITESPACE_RE = re.compile(r"\s+")
+CALENDAR_AJAX_URL = "https://www.kw.ac.kr/KWBoard/list5_detail.jsp"
 
 
 def _normalize_notice_url(notice_url: str) -> str:
@@ -47,21 +47,9 @@ def _extract_clean_text(content_tag: BeautifulSoup) -> str:
     return "\n".join(lines)
 
 
-def _parse_iso_date(value: str | None, arg_name: str) -> date | None:
-    """YYYY-MM-DD 문자열을 date 객체로 변환합니다."""
-    if not value:
-        return None
-    try:
-        return date.fromisoformat(value)
-    except ValueError as exc:
-        raise ValueError(f"{arg_name}는 YYYY-MM-DD 형식이어야 합니다: {value}") from exc
-
-
 def get_kw_notices(
     search_key: int = 1,
     search_val: str | None = None,
-    date_from: str | None = None,
-    date_to: str | None = None,
 ) -> list[dict]:
     """광운대학교 공지사항 목록을 수집해 반환합니다.
 
@@ -69,19 +57,12 @@ def get_kw_notices(
         search_key: 사이트 검색 기준.
             1=제목, 2=내용, 3=제목+내용, 4=작성자
         search_val: 사이트 검색어(searchVal). None 또는 빈 문자열이면 전체 검색.
-        date_from: 작성일 시작일(YYYY-MM-DD). 해당 날짜 이상만 포함합니다.
-        date_to: 작성일 종료일(YYYY-MM-DD). 해당 날짜 이하만 포함합니다.
 
     Returns:
         각 공지에 대해 category, title, date, url 키를 가진 딕셔너리 목록.
     """
     # 검색어는 사이트 검색 파라미터로 전달되므로 공백 정리만 수행합니다.
     normalized_search_val = (search_val or "").strip()
-    parsed_date_from = _parse_iso_date(date_from, "date_from")
-    parsed_date_to = _parse_iso_date(date_to, "date_to")
-
-    if parsed_date_from and parsed_date_to and parsed_date_from > parsed_date_to:
-        raise ValueError("date_from은 date_to보다 늦을 수 없습니다.")
     if search_key not in {1, 2, 3, 4}:
         raise ValueError("search_key는 1, 2, 3, 4 중 하나여야 합니다.")
 
@@ -138,16 +119,6 @@ def get_kw_notices(
 
         # 필수값이 있는 항목만 유효 공지로 판단합니다.
         if title and link:
-            # 작성일 범위 필터는 검색 결과를 가져온 후 후처리로 적용합니다.
-            if parsed_date_from or parsed_date_to:
-                if not notice_date_text:
-                    continue
-                parsed_notice_date = date.fromisoformat(notice_date_text)
-                if parsed_date_from and parsed_notice_date < parsed_date_from:
-                    continue
-                if parsed_date_to and parsed_notice_date > parsed_date_to:
-                    continue
-
             notices.append(
                 {
                     "category": category,
@@ -207,4 +178,125 @@ def get_kw_notice_content(notice_url: str) -> dict:
         "title": title,
         "date": notice_date_text,
         "content_text": content_text,
+    }
+
+
+def get_kw_academic_calendar(year: str = "", month: str = "") -> dict:
+    """광운대학교 학사일정 페이지에서 일정 영역만 추출해 반환합니다.
+
+    Returns:
+        url, year, schedules 키를 가진 딕셔너리.
+        schedules는 월("02" 등)을 키로 갖고,
+        값은 period/event 항목 목록인 딕셔너리입니다.
+        서버에서 내려온 원본 학사일정(예: 10~09 순환) 구조를 그대로 반영합니다.
+    """
+    calendar_url = "https://www.kw.ac.kr/ko/life/bachelor_calendar.jsp"
+
+    # month 입력은 3/03 모두 허용하고 내부적으로 2자리 월 문자열로 통일합니다.
+    normalized_month = ""
+    if (month or "").strip():
+        raw_month = (month or "").strip()
+        if not raw_month.isdigit():
+            raise ValueError("month는 1~12 숫자여야 합니다.")
+        month_number = int(raw_month)
+        if month_number < 1 or month_number > 12:
+            raise ValueError("month는 1~12 범위여야 합니다.")
+        normalized_month = f"{month_number:02d}"
+
+    normalized_year = (year or "").strip()
+    year_match = re.search(r"(\d{4})", normalized_year)
+    if year_match:
+        normalized_year = year_match.group(1)
+
+    payload = {
+        "sy": normalized_year,
+        "sm": normalized_month,
+    }
+    response = requests.post(
+        CALENDAR_AJAX_URL,
+        data=payload,
+        headers=DEFAULT_HEADERS,
+        timeout=10,
+    )
+    response.raise_for_status()
+
+    soup = BeautifulSoup(response.text, "html.parser")
+
+    calendar_box = soup.select_one(".schedule-this-year")
+    if calendar_box is None:
+        calendar_box = soup
+
+    schedule_root = calendar_box.select_one(".schedule-list-box.schedule-this-yearlist")
+    if schedule_root is None:
+        schedule_root = calendar_box.select_one(".schedule-list-box")
+    if schedule_root is None:
+        schedule_root = calendar_box
+
+    parsed_year = ""
+    year_title = calendar_box.select_one(".schedule-title h3")
+    if year_title is None:
+        year_title = soup.select_one("h3")
+    if year_title:
+        parsed_year_match = re.search(r"(\d{4})", year_title.get_text(" ", strip=True))
+        if parsed_year_match:
+            parsed_year = parsed_year_match.group(1)
+
+    schedules: dict[str, list[dict]] = {}
+    month_boxes = schedule_root.select(".month_box")
+    if month_boxes:
+        for month_box in month_boxes:
+            month_text = month_box.select_one(".month span")
+            month_key = month_text.get_text(strip=True) if month_text else ""
+            if not month_key:
+                continue
+
+            if month_key not in schedules:
+                schedules[month_key] = []
+
+            for item in month_box.select(".list ul li"):
+                period_tag = item.select_one("strong")
+                event_tag = item.select_one("p")
+                period = period_tag.get_text(" ", strip=True) if period_tag else ""
+                event = event_tag.get_text(" ", strip=True) if event_tag else ""
+                if period and event:
+                    schedules[month_key].append(
+                        {
+                            "period": period,
+                            "event": event,
+                        }
+                    )
+    else:
+        # 월간 뷰 fallback: month_box 없이 li가 내려오는 경우를 지원합니다.
+        fallback_items = []
+        for item in schedule_root.select("li"):
+            period_tag = item.select_one("strong")
+            event_tag = item.select_one("p")
+            period = period_tag.get_text(" ", strip=True) if period_tag else ""
+            event = event_tag.get_text(" ", strip=True) if event_tag else ""
+            if period and event:
+                fallback_items.append(
+                    {
+                        "period": period,
+                        "event": event,
+                    }
+                )
+
+        if fallback_items and normalized_month:
+            schedules[normalized_month] = fallback_items
+        elif not fallback_items:
+            raise ValueError("학사일정 목록 영역(.schedule-list-box/.month_box)을 찾지 못했습니다.")
+
+    # month 키에서 숫자가 아닌 모든 문자(\D)를 강제로 제거한 후 오름차순 정렬합니다.
+    # (눈에 보이지 않는 특수 공백 문자가 섞여 있어도 완벽하게 숫자로 변환해 줍니다)
+    sorted_schedules = dict(
+        sorted(
+            schedules.items(),
+            key=lambda item: int(re.sub(r'\D', '', str(item[0]))) if re.sub(r'\D', '', str(item[0])) else 99
+        )
+    )
+
+    return {
+        "url": calendar_url,
+        "year": normalized_year or parsed_year,
+        "schedules": sorted_schedules,
     }
