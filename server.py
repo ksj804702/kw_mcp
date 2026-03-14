@@ -3,6 +3,7 @@ from fastmcp import FastMCP
 from notices import get_kw_notices as fetch_kw_notices
 from notices import get_kw_notice_content as fetch_kw_notice_content
 from notices import get_kw_academic_calendar as fetch_kw_academic_calendar
+from cafeteria import get_kw_student_meal as fetch_kw_student_meal
 import xml.etree.ElementTree as ET
 import requests
 import json
@@ -62,6 +63,16 @@ def get_kw_academic_calendar(year: str = "", month: str = "") -> dict:
         data["schedules"] = final_schedules
         
     return data
+
+
+@mcp.tool()
+def get_kw_student_meal(meal_type: str = "") -> dict:
+    """광운대학교 학생식당 주간 식단을 조회합니다.
+
+    Args:
+        meal_type: 식사 구분("아침", "점심"). 비우면 전체 반환.
+    """
+    return fetch_kw_student_meal(meal_type=meal_type)
 
 @mcp.tool()
 def get_study_room_status(room_type: str = "6", search_date: str = "") -> str:
