@@ -1,6 +1,7 @@
 from fastmcp import FastMCP
 
 from notices import get_kw_notices as fetch_kw_notices
+from notices import get_kw_notice_content as fetch_kw_notice_content
 import xml.etree.ElementTree as ET
 import requests
 import json
@@ -10,24 +11,36 @@ mcp = FastMCP("KW University Notices")
 
 @mcp.tool()
 def get_kw_notices(
-    keyword: str = "",
+    search_key: int = 1,
+    search_val: str = "",
     date_from: str = "",
     date_to: str = "",
 ) -> list[dict]:
     """광운대학교 공지사항 목록을 반환합니다.
 
     Args:
-        keyword: 제목/카테고리 필터용 검색어.
-            빈 문자열이면 전체 공지사항을 반환합니다.
+        search_key: 사이트 검색 기준(1=제목, 2=내용, 3=제목+내용, 4=작성자).
+        search_val: 사이트 검색어(searchVal).
         date_from: 작성일 시작일(YYYY-MM-DD).
         date_to: 작성일 종료일(YYYY-MM-DD).
     """
-    # MCP 클라이언트에서 전달된 keyword를 그대로 수집 함수에 위임합니다.
+    # MCP 클라이언트에서 전달된 검색 조건을 수집 함수에 그대로 위임합니다.
     return fetch_kw_notices(
-        keyword=keyword,
+        search_key=search_key,
+        search_val=search_val,
         date_from=date_from,
         date_to=date_to,
     )
+
+
+@mcp.tool()
+def get_kw_notice_content(notice_url: str) -> dict:
+    """공지 상세 URL을 받아 게시글 제목/작성일/본문을 반환합니다.
+
+    Args:
+        notice_url: 공지 상세 URL(절대 URL 또는 '/'로 시작하는 상대 URL).
+    """
+    return fetch_kw_notice_content(notice_url)
 
 @mcp.tool()
 def get_library_seats() -> str:

@@ -10,10 +10,15 @@ def parse_args() -> argparse.Namespace:
     """CLI 인자를 파싱합니다."""
     parser = argparse.ArgumentParser(description="광운대학교 공지사항 조회")
     parser.add_argument(
-        "-k",
-        "--keyword",
+        "--search-key",
+        type=int,
+        default=1,
+        help="검색 기준 (1=제목, 2=내용, 3=제목+내용, 4=작성자)",
+    )
+    parser.add_argument(
+        "--search-val",
         default="",
-        help="제목/카테고리 검색어 (예: 국제학생, 장학)",
+        help="사이트 검색어 (searchVal)",
     )
     parser.add_argument(
         "--date-from",
@@ -29,11 +34,12 @@ def parse_args() -> argparse.Namespace:
 
 
 if __name__ == "__main__":
-    # 사용자가 전달한 검색어를 읽어 필터 조회에 사용합니다.
+    # 사용자가 전달한 사이트 검색 조건과 날짜 조건으로 조회합니다.
     args = parse_args()
     try:
         result = get_kw_notices(
-            keyword=args.keyword,
+            search_key=args.search_key,
+            search_val=args.search_val,
             date_from=args.date_from,
             date_to=args.date_to,
         )
