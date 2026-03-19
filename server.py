@@ -8,6 +8,7 @@ import xml.etree.ElementTree as ET
 import requests
 import json
 from datetime import datetime 
+import base64
 
 mcp = FastMCP("KW University Notices")
 
@@ -217,6 +218,190 @@ def get_library_seats() -> str:
 
     except Exception as e:
         return f"도서관 좌석 정보를 불러오는데 실패했습니다: {e}"
+@mcp.tool()
+def reserve_study_room(
+    room_no: str,
+    search_date: str,
+    start_time: str,
+    end_time: str,
+    student_arr: str
+) -> str:
+    """
+    [경고: 절대 자동으로 호출하지 마세요!]
+    사용자가 명확하게 "예약해 줘"라고 지시하며 학번 정보 등을 제공했을 때만 이 도구를 호출하세요.
+    단순히 빈자리를 조회하는 용도로 이 도구를 사용하면 절대 안 됩니다.
+    
+    광운대학교 중앙도서관 그룹스터디룸 예약을 실행합니다.
+    
+    Args:
+        room_no: 예약할 방 번호 (예: "5")
+        search_date: 예약 날짜 (YYYYMMDD 형식, 예: "20260320")
+        start_time: 시작 시간 (예: "1900")
+        end_time: 종료 시간 (예: "1955")
+        student_arr: 예약할 학생들의 학번 목록 (구분자 '|', 예: "02025402021|02025402024")
+    """
+    url = "https://mobileid.kw.ac.kr/mobile/MA/Xml_Study_Room_Reserve.php"
+    
+    headers = {
+        'User-Agent': 'Dalvik/2.1.0 (Linux; U; Android 16; 2412DPC0AG Build/BP2A.250605.031.A3)',
+        'Content-Type': 'application/x-www-form-urlencoded'
+    }
+    
+    payload = {
+        "room_no": room_no,
+        "search_date": search_date,
+        "student_arr": student_arr,
+        "start_time": start_time,
+        "end_time": end_time
+    }
+    
+    try:
+        response = requests.post(url, headers=headers, data=payload)
+        response.raise_for_status()
+        
+        root = ET.fromstring(response.text)
+        item = root.find('item')
+        if item is None:
+            return "❌ 예약 서버 응답을 파싱할 수 없습니다."
+            
+        result_code_elem = item.find('result_code')
+        result_msg_elem = item.find('result_msg')
+        
+        result_code = result_code_elem.text.strip() if result_code_elem is not None else "-1"
+        result_msg = result_msg_elem.text.strip() if result_msg_elem is not None else "알 수 없는 오류"
+        
+        # result_code가 "0"이면 예약 성공!
+        if result_code == "0":
+            res_room = item.find('res_room_info').text.strip()
+            res_time = item.find('res_use_time').text.strip()
+            return f"✅ 예약 성공! [{res_room}] {res_time} ({result_msg})"
+        else:
+            return f"❌ 예약 실패: {result_msg}"
+            
+    except Exception as e:
+        return f"❌ 예약 요청 중 오류가 발생했습니다: {e}"
+@mcp.tool()
+def cancel_study_room(reserve_no: str, student_id: str) -> str:
+    """
+    [경고: 절대 자동으로 호출하지 마세요!]
+    사용자가 명확하게 "예약 취소해 줘"라고 지시했을 때만 이 도구를 호출하세요.
+    
+    광운대학교 중앙도서관 그룹스터디룸 예약을 취소합니다.
+    
+    Args:
+        reserve_no: 예약 완료 시 발급받은 예약 번호 (예: "20260320051300333")
+        student_id: 예약자의 학번 (알아서 Base64로 변환되어 서버로 전송됩니다)
+    """
+    url = "https://mobileid.kw.ac.kr/mobile/MA/xml_Study_Room_Cancel.php"
+    
+    # 학번을 광운대 서버가 요구하는 Base64 형태(real_id)로 자동 인코딩
+    real_id_bytes = base64.b64encode(student_id.encode('utf-8'))
+    real_id = real_id_bytes.decode('utf-8')
+    
+    headers = {
+        'User-Agent': 'Dalvik/2.1.0 (Linux; U; Android 16; 2412DPC0AG Build/BP2A.250605.031.A3)',
+        'Content-Type': 'application/x-www-form-urlencoded'
+    }
+    
+    payload = {
+        "reserve_no": reserve_no,
+        "real_id": real_id
+    }
+    
+    try:
+        response = requests.post(url, headers=headers, data=payload)
+        response.raise_for_status()
+        
+        root = ET.fromstring(response.text)
+        item = root.find('item')
+        if item is None:
+            return "❌ 취소 서버 응답을 파싱할 수 없습니다."
+            
+        result_code_elem = item.find('result_code')
+        result_msg_elem = item.find('result_msg')
+        
+        result_code = result_code_elem.text.strip() if result_code_elem is not None else "-1"
+        result_msg = result_msg_elem.text.strip() if result_msg_elem is not None else "알 수 없는 오류"
+        
+        if result_code == "0":
+            return f"✅ {result_msg}"
+        else:
+            return f"❌ 예약 취소 실패: {result_msg}"
+            
+    except Exception as e:
+        return f"❌ 예약 취소 요청 중 오류가 발생했습니다: {e}"
+@mcp.tool()
+def get_my_seat_status(student_id: str) -> str:
+    """
+    광운대학교 중앙도서관 일반 열람실 좌석 및 그룹스터디룸 나의 예약/발권 현황을 조회합니다.
+    예약을 취소하기 위해 reserve_no가 필요할 때 이 도구를 먼저 사용하세요.
+    
+    Args:
+        student_id: 조회할 학생의 학번
+    """
+    url = "https://mobileid.kw.ac.kr/mobile/MA/xml_mySeat_Status_list.php"
+    
+    # 학번 Base64 인코딩
+    real_id_bytes = base64.b64encode(student_id.encode('utf-8'))
+    real_id = real_id_bytes.decode('utf-8')
+    
+    headers = {
+        'User-Agent': 'Dalvik/2.1.0 (Linux; U; Android 16; 2412DPC0AG Build/BP2A.250605.031.A3)',
+        'Content-Type': 'application/x-www-form-urlencoded'
+    }
+    
+    payload = {
+        "real_id": real_id
+    }
+    
+    try:
+        response = requests.post(url, headers=headers, data=payload)
+        response.raise_for_status()
+        
+        root = ET.fromstring(response.text)
+        item = root.find('item')
+        
+        if item is None:
+            return "❌ 서버 응답을 파싱할 수 없습니다."
+            
+        result_code = item.findtext('result_code', default="").strip()
+        
+        if result_code != "0":
+            return "❌ 조회 실패 (학번 또는 서버 상태를 확인하세요)"
 
+        # 1. 스터디룸 예약 번호가 있는지 먼저 확인
+        study_reserve_no = item.findtext('study_reserve_no', default="").strip()
+        
+        # 2. 일반 열람실 발권 정보가 있는지 확인
+        seat_room_name = item.findtext('seat_room_name', default="").strip()
+        
+        if study_reserve_no:
+            # 스터디룸 예약이 있는 경우
+            result = {
+                "type": "그룹스터디룸",
+                "room_name": item.findtext('study_sroom_name', default="").strip(),
+                "date": item.findtext('study_reserve_date', default="").strip(),
+                "time": item.findtext('study_use_time', default="").strip(),
+                "status": item.findtext('study_reserve_stat', default="").strip(),
+                "reserve_no": study_reserve_no
+            }
+            return json.dumps(result, ensure_ascii=False, indent=2)
+            
+        elif seat_room_name:
+            # 일반 열람실 발권이 있는 경우
+            result = {
+                "type": "일반열람실",
+                "room_name": seat_room_name,
+                "seat_no": item.findtext('seat_seat_no', default="").strip(),
+                "start_time": item.findtext('seat_start_time', default="").strip(),
+                "end_time": item.findtext('seat_end_time', default="").strip()
+            }
+            return json.dumps(result, ensure_ascii=False, indent=2)
+            
+        else:
+            return "현재 예약되거나 발권된 좌석이 없습니다."
+            
+    except Exception as e:
+        return f"❌ 조회 요청 중 오류가 발생했습니다: {e}"
 if __name__ == "__main__":
     mcp.run()
