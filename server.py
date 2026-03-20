@@ -3,6 +3,7 @@ from fastmcp import FastMCP
 from cafeteria import get_kw_student_meal as fetch_kw_student_meal
 from klas import fetch_klas_timetable
 from klas import perform_klas_login
+from klas import fetch_uncompleted_work
 from library import cancel_study_room_action
 from library import fetch_library_seats
 from library import fetch_my_seat_status
@@ -149,6 +150,13 @@ def get_klas_timetable(year: str = "2026", semester: str = "1") -> str:
     """
     return fetch_klas_timetable(year=year, semester=semester)
 
+@mcp.tool()
+def get_klas_todo(year: str = "2026", semester: str = "1") -> str:
+    """
+    [경고] 반드시 login_klas 도구를 먼저 사용한 후 호출하세요.
+    수강 중인 모든 과목을 스캔하여 '제출하지 않은 과제(미제출)'와 '다 듣지 않은 온라인 강의(미수강)' 목록을 모두 찾아줍니다.
+    """
+    return fetch_uncompleted_work(year, semester)
 
 if __name__ == "__main__":
     mcp.run()
