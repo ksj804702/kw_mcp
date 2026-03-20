@@ -300,3 +300,21 @@ def get_kw_academic_calendar(year: str = "", month: str = "") -> dict:
         "year": normalized_year or parsed_year,
         "schedules": sorted_schedules,
     }
+
+
+def get_kw_academic_calendar_for_mcp(year: str = "", month: str = "") -> dict:
+    """MCP 응답 호환을 위해 월 키를 정렬하고 '월' 접미사를 붙여 반환합니다."""
+    data = get_kw_academic_calendar(year=year, month=month)
+
+    if "schedules" in data:
+        schedules = data["schedules"]
+        sorted_items = sorted(
+            schedules.items(),
+            key=lambda item: int("".join(filter(str.isdigit, str(item[0])))) if "".join(filter(str.isdigit, str(item[0]))) else 99,
+        )
+        data["schedules"] = {
+            f"{key}월" if not str(key).endswith("월") else key: value
+            for key, value in sorted_items
+        }
+
+    return data
