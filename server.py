@@ -4,6 +4,9 @@ from cafeteria import get_kw_student_meal as fetch_kw_student_meal
 from klas import fetch_klas_timetable
 from klas import perform_klas_login
 from klas import fetch_uncompleted_work
+from klas import fetch_assignment_post_body
+from klas import perform_assignment_download
+from klas import extract_text_from_pdf
 from library import cancel_study_room_action
 from library import fetch_library_seats
 from library import fetch_my_seat_status
@@ -157,6 +160,29 @@ def get_klas_todo(year: str = "2026", semester: str = "1") -> str:
     수강 중인 모든 과목을 스캔하여 '제출하지 않은 과제(미제출)'와 '다 듣지 않은 온라인 강의(미수강)' 목록을 모두 찾아줍니다.
     """
     return fetch_uncompleted_work(year, semester)
+@mcp.tool()
+def get_klas_todo_detail(subj_code: str, year: str, semester: str, task_no: int) -> str:
+    """
+    [경고] login_klas 사용 후 호출하세요. get_klas_todo에서 확인한 subj_code, task_no 등을 
+    입력하여 해당 과제의 상세 게시글 본문과 첨부파일 목록을 긁어옵니다.
+    """
+    # ⚠️ 위 klas.py 코드에서 드롭다운 조작 로직이 생략되어 dummy 데이터를 반환합니다.
+    # 실제 구현 시 가장 많은 reverse engineering이 필요한 부분입니다.
+    return fetch_assignment_post_body(subj_code, year, semester, task_no)
 
+@mcp.tool()
+def download_klas_file(subj_code: str, year: str, semester: str, task_no: int, file_name: str) -> str:
+    """
+    [경고] login_klas 사용 후 호출하세요. 과제 상세 페이지에서 특정 첨부파일을 
+    'downloads/' 폴더로 다운로드하고 로컬 파일 경로를 반환합니다.
+    """
+    return perform_assignment_download(subj_code, year, semester, task_no, file_name)
+
+@mcp.tool()
+def analyze_pdf_file(file_path: str) -> str:
+    """
+    download_klas_file로 다운로드한 PDF 파일의 경로를 입력받아 내부 텍스트를 싹 다 긁어서 보여줍니다.
+    """
+    return extract_text_from_pdf(file_path)
 if __name__ == "__main__":
     mcp.run()
