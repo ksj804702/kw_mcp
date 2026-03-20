@@ -1,7 +1,8 @@
 from fastmcp import FastMCP
 
 from cafeteria import get_kw_student_meal as fetch_kw_student_meal
-from klas import login_klas_action
+from klas import fetch_klas_timetable
+from klas import perform_klas_login
 from library import cancel_study_room_action
 from library import fetch_library_seats
 from library import fetch_my_seat_status
@@ -126,13 +127,28 @@ def get_my_seat_status(student_id: str) -> str:
 @mcp.tool()
 def login_klas(student_id: str, password: str) -> str:
     """
-    광운대학교 종합정보시스템(KLAS)에 자동 로그인하여 세션 쿠키를 가져옵니다.
-    이 쿠키를 이용해 향후 과제, 시간표 등의 로그인 필수 데이터를 조회할 수 있습니다.
+    광운대학교 종합정보시스템(KLAS)에 자동 로그인하여 세션을 유지합니다.
+    이 로그인 이후 시간표, 과제 등의 로그인 필수 데이터를 조회할 수 있습니다.
     
     Args:
         student_id: 학번
         password: KLAS 비밀번호
     """
-    return login_klas_action(student_id=student_id, password=password)
+    return perform_klas_login(student_id=student_id, password=password)
+
+
+@mcp.tool()
+def get_klas_timetable(year: str = "2026", semester: str = "1") -> str:
+    """
+    KLAS 로그인 후 시간표를 조회합니다.
+    반드시 login_klas을 먼저 호출해서 로그인을 완료해야 합니다.
+    
+    Args:
+        year: 학년도 (기본값 "2026")
+        semester: 학기 ("1" 또는 "2", 기본값 "1")
+    """
+    return fetch_klas_timetable(year=year, semester=semester)
+
+
 if __name__ == "__main__":
     mcp.run()
