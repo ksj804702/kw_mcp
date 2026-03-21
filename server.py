@@ -129,14 +129,14 @@ def get_my_seat_status(student_id: str) -> str:
     """
     return fetch_my_seat_status(student_id=student_id)
 @mcp.tool()
-def login_klas(student_id: str, password: str) -> str:
+def login_klas(student_id: str = "", password: str = "") -> str:
     """
     광운대학교 종합정보시스템(KLAS)에 자동 로그인하여 세션을 유지합니다.
     이 로그인 이후 시간표, 과제 등의 로그인 필수 데이터를 조회할 수 있습니다.
     
     Args:
-        student_id: 학번
-        password: KLAS 비밀번호
+        student_id: 학번(선택). 비우면 .env의 KLAS_STUDENT_ID 사용.
+        password: KLAS 비밀번호(선택). 비우면 .env의 KLAS_PASSWORD 사용.
     """
     return perform_klas_login(student_id=student_id, password=password)
 

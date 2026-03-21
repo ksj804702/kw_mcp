@@ -9,15 +9,25 @@ from pathlib import Path
 from playwright.sync_api import BrowserContext
 from pdfminer.high_level import extract_text
 from bs4 import BeautifulSoup
+from dotenv import load_dotenv
+
+PROJECT_DIR = Path(__file__).resolve().parent
+load_dotenv(PROJECT_DIR / ".env")
 
 # 🌟 KLAS 전용 공용 쿠키 주머니 (이 파일 안의 모든 함수가 공유합니다)
 agent_session = requests.Session()
 is_logged_in = False
 
 
-def perform_klas_login(student_id: str, password: str) -> str:
+def perform_klas_login(student_id: str = "", password: str = "") -> str:
     """KLAS 자동 로그인 (server.py에서 호출할 순수 함수)"""
     global is_logged_in
+
+    student_id = student_id or os.getenv("KLAS_STUDENT_ID", "")
+    password = password or os.getenv("KLAS_PASSWORD", "")
+
+    if not student_id or not password:
+        return "❌ 로그인 정보가 없습니다. .env에 KLAS_STUDENT_ID, KLAS_PASSWORD를 설정하세요."
 
     # 이미 로그인되어 있으면 스킵
     if is_logged_in:
@@ -189,9 +199,9 @@ def fetch_uncompleted_work(year: str = "2026", semester: str = "1") -> str:
     except Exception as e:
         return f"❌ 과제/강의 조회 중 오류 발생: {str(e)}" 
 
-# 다운로드 폴더 설정
-BASE_DIR = Path(r"C:\Users\김성준\Desktop\KW_MCP").resolve().parent  # 현재 klas.py 파일이 있는 폴더 위치
-DOWNLOAD_DIR = BASE_DIR / "downloads"       # 그 안에 downloads 폴더 지정
+# 다운로드 폴더 설정 (klas.py 기준 상대 경로)
+BASE_DIR = PROJECT_DIR
+DOWNLOAD_DIR = (BASE_DIR / "downloads").resolve()
 DOWNLOAD_DIR.mkdir(exist_ok=True)
 
 # --- [내부 유틸 함수] requests 쿠키를 Playwright에 넣기 ---
