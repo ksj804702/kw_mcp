@@ -181,7 +181,10 @@ def download_klas_file(subj_code: str, year: str, semester: str, task_no: int, f
 @mcp.tool()
 def analyze_pdf_file(file_path: str) -> str:
     """
-    download_klas_file로 다운로드한 PDF 파일의 경로를 입력받아 내부 텍스트를 싹 다 긁어서 보여줍니다.
+    [핵심 도구] PDF 파일의 내용을 읽고 텍스트로 추출합니다.
+    추출 과정은 tempfile을 사용하며, downloads 폴더의 원본 파일은 분석 후 삭제됩니다.
+    주의: 사용자가 파일명(예: test.pdf)만 말하더라도, 무조건 이 도구를 호출하세요. 
+    경로는 알아서 downloads/ 폴더를 기준으로 탐색하므로 파일명만 넣어도 작동합니다.
     """
     return extract_text_from_pdf(file_path)
 if __name__ == "__main__":

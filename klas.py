@@ -1,5 +1,7 @@
 import json
 import os
+import shutil
+import tempfile
 import requests
 from playwright.sync_api import sync_playwright
 from datetime import datetime  
@@ -188,7 +190,8 @@ def fetch_uncompleted_work(year: str = "2026", semester: str = "1") -> str:
         return f"❌ 과제/강의 조회 중 오류 발생: {str(e)}" 
 
 # 다운로드 폴더 설정
-DOWNLOAD_DIR = Path("C:\\Users\\김성준\\klas_downloads")
+BASE_DIR = Path(r"C:\Users\김성준\Desktop\KW_MCP").resolve().parent  # 현재 klas.py 파일이 있는 폴더 위치
+DOWNLOAD_DIR = BASE_DIR / "downloads"       # 그 안에 downloads 폴더 지정
 DOWNLOAD_DIR.mkdir(exist_ok=True)
 
 # --- [내부 유틸 함수] requests 쿠키를 Playwright에 넣기 ---
@@ -310,17 +313,35 @@ def perform_assignment_download(subj_code: str, year: str, semester: str, task_n
     except Exception as e:
         return f"❌ 다운로드 오류: {str(e)}"
 
-# --- [신규 기능 3] PDF 텍스트 추출 툴 ---
+
 def extract_text_from_pdf(file_path: str) -> str:
-    """로컬에 저장된 PDF 파일에서 텍스트를 추출하여 클로드에게 던집니다."""
+    """PDF 텍스트를 추출한 뒤 임시/다운로드 파일을 정리합니다."""
+    
+    # 🌟 핵심 수정: 클로드가 "downloads/test.pdf" 라고 치든 "test.pdf" 라고 치든
+    # 무조건 우리가 설정한 절대 경로(DOWNLOAD_DIR) 안에서 찾도록 강제 지정합니다!
     path = Path(file_path)
-    if not path.exists() or path.suffix.lower() != ".pdf":
-        return "❌ 오류: PDF 파일이 아니거나 존재하지 않습니다."
+    if not path.is_absolute():
+        path = DOWNLOAD_DIR / path.name 
         
+    if not path.exists() or path.suffix.lower() != ".pdf":
+        return f"❌ 오류: PDF 파일이 존재하지 않습니다. (찾은 위치: {path})"
+
+    temp_path: Path | None = None
     try:
+        # 원본 파일을 건드리지 않도록 tempfile에 복사 후 추출합니다.
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
+            temp_path = Path(tmp.name)
+        shutil.copy2(path, temp_path)
+
         # pdfminer가 PDF 전체를 텍스트로 싹 다 긁어줍니다!
-        text = extract_text(path)
-        # LLM context 제한이 있을 수 있으므로 너무 길면 자르는 로직을 두는 게 좋습니다.
-        return text[:10000] # 일단 만 자만 자름
+        text = extract_text(str(temp_path))
+        return text[:10000] # 만 자만 자름
     except Exception as e:
-        return f"❌ PDF 분석 실패: {str(e)}"   
+        return f"❌ PDF 분석 실패: {str(e)}"
+    finally:
+        if temp_path and temp_path.exists():
+            temp_path.unlink(missing_ok=True)
+
+        # downloads 폴더의 파일이라면 분석 후 바로 삭제해 잔여 파일을 남기지 않습니다.
+        if path.exists() and path.parent == DOWNLOAD_DIR:
+            path.unlink(missing_ok=True)
