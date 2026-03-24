@@ -6,7 +6,6 @@ import requests
 from playwright.sync_api import sync_playwright
 from datetime import datetime  
 from pathlib import Path
-from playwright.sync_api import BrowserContext
 from pdfminer.high_level import extract_text
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
@@ -17,6 +16,94 @@ load_dotenv(PROJECT_DIR / ".env")
 # 🌟 KLAS 전용 공용 쿠키 주머니 (이 파일 안의 모든 함수가 공유합니다)
 agent_session = requests.Session()
 is_logged_in = False
+
+
+def _extract_attachment_names(detail_data: dict) -> list[str]:
+    """TaskStdView 응답 전체에서 첨부파일명을 최대한 폭넓게 추출합니다."""
+    filename_keys = {
+        "realfile",
+        "orignlFileNm",
+        "orignlFileName",
+        "orgFileNm",
+        "orgnlFileNm",
+        "fileNm",
+        "fileName",
+        "filename",
+        "atchFileNm",
+    }
+
+    found: list[str] = []
+    stack: list[object] = [detail_data]
+
+    while stack:
+        current = stack.pop()
+
+        if isinstance(current, dict):
+            for key, value in current.items():
+                if isinstance(value, (dict, list)):
+                    stack.append(value)
+
+                if isinstance(value, str) and key in filename_keys:
+                    # 실서버에서 "a.pdf,b.pdf" 형태로 내려오는 경우를 분리합니다.
+                    parts = [p.strip() for p in value.replace("|", ",").split(",") if p.strip()]
+                    for name in parts:
+                        if "." in name:
+                            found.append(name)
+
+        elif isinstance(current, list):
+            for item in current:
+                if isinstance(item, (dict, list)):
+                    stack.append(item)
+
+    # 순서를 유지한 중복 제거
+    unique_found: list[str] = []
+    for name in found:
+        if name not in unique_found:
+            unique_found.append(name)
+
+    return unique_found
+
+
+def _fetch_task_detail_data(subj_code: str, year: str, semester: str, task_no: int) -> tuple[dict, dict]:
+    """TaskStdView 응답 원본과 rpt를 반환합니다."""
+    detail_url = "https://klas.kw.ac.kr/std/lis/evltn/TaskStdView.do"
+    payload = {
+        "pageInit": True,
+        "selectYearhakgi": f"{year},{semester}",
+        "selectSubj": subj_code,
+        "selectChangeYn": "Y",
+        "ordseq": str(task_no),
+        "weeklySeq": str(task_no),
+        "weeklySubSeq": "1",
+    }
+    headers = {"Content-Type": "application/json"}
+
+    response = agent_session.post(detail_url, json=payload, headers=headers)
+    response.raise_for_status()
+    data = response.json()
+    rpt = data.get("rpt", {})
+    return data, rpt
+
+
+def _fetch_upload_file_list(attach_id: str, storage_id: str = "CLS_PROF_TASK") -> list[dict]:
+    """UploadFileList API로 첨부파일 메타데이터 목록을 가져옵니다."""
+    if not attach_id:
+        return []
+
+    url = "https://klas.kw.ac.kr/common/file/UploadFileList.do"
+    payload = {
+        "storageId": storage_id,
+        "attachId": attach_id,
+    }
+    headers = {"Content-Type": "application/json;charset=UTF-8"}
+
+    response = agent_session.post(url, json=payload, headers=headers)
+    response.raise_for_status()
+
+    file_list = response.json()
+    if isinstance(file_list, list):
+        return file_list
+    return []
 
 
 def perform_klas_login(student_id: str = "", password: str = "") -> str:
@@ -204,30 +291,6 @@ BASE_DIR = PROJECT_DIR
 DOWNLOAD_DIR = (BASE_DIR / "downloads").resolve()
 DOWNLOAD_DIR.mkdir(exist_ok=True)
 
-# --- [내부 유틸 함수] requests 쿠키를 Playwright에 넣기 ---
-def _get_playwright_context_with_cookies(p: sync_playwright) -> BrowserContext:
-    """공유 agent_session의 쿠키를 이식받은 가상 브라우저 컨텍스트를 반환합니다."""
-    # headless=True로 해야 백그라운드에서 조용히 돕니다.
-    browser = p.chromium.launch(headless=True)
-    context = browser.new_context(accept_downloads=True) # 다운로드 허용 필수!
-
-    # requests.Session 주머니에서 쿠키 꺼내기
-    requests_cookies = agent_session.cookies.get_dict()
-    
-    # Playwright 포맷으로 변환해서 넣기
-    playwright_cookies = []
-    for name, value in requests_cookies.items():
-        # KLAS는 보통 mobileid.kw.ac.kr 나 klas.kw.ac.kr 도메인을 씁니다.
-        # 안전하게 전체 도메인에 대해 세팅합니다.
-        playwright_cookies.append({
-            'name': name,
-            'value': value,
-            'url': 'https://klas.kw.ac.kr' 
-        })
-    
-    context.add_cookies(playwright_cookies)
-    return context
-
 # --- 과제 게시글 본문 및 첨부파일 목록 긁기 ---
 def fetch_assignment_post_body(subj_code: str, year: str, semester: str, task_no: int) -> str:
     """
@@ -237,28 +300,9 @@ def fetch_assignment_post_body(subj_code: str, year: str, semester: str, task_no
     global is_logged_in
     if not is_logged_in: return "❌ KLAS 로그인 필요"
 
-    url = "https://klas.kw.ac.kr/std/lis/evltn/TaskStdView.do"
-    
-    # 찾아주신 Payload 구조 완벽 반영!
-    # 이전 목록(TaskStdList)에서 받은 task_no가 여기서 ordseq, weeklySeq로 쓰입니다.
-    payload = {
-        "pageInit": True,
-        "selectYearhakgi": f"{year},{semester}",
-        "selectSubj": subj_code,
-        "selectChangeYn": "Y",
-        "ordseq": str(task_no),
-        "weeklySeq": str(task_no),
-        "weeklySubSeq": "1"
-    }
-    headers = {"Content-Type": "application/json"}
-    
     try:
-        # 공유 중인 쿠키 세션으로 다이렉트 API 호출
-        response = agent_session.post(url, json=payload, headers=headers)
-        response.raise_for_status()
-        data = response.json()
+        data, rpt = _fetch_task_detail_data(subj_code, year, semester, task_no)
         
-        rpt = data.get("rpt", {})
         if not rpt:
             return "❌ 과제 상세 내용을 불러올 수 없습니다."
             
@@ -270,8 +314,21 @@ def fetch_assignment_post_body(subj_code: str, year: str, semester: str, task_no
         
         # 제출 제한 및 첨부파일 정보 수집
         file_type = rpt.get("submitfiletype", "제한 없음")
-        real_file = rpt.get("realfile")
         atch_file_id = rpt.get("atchFileId")
+        storage_id = rpt.get("storageId") or data.get("storageId") or "CLS_PROF_TASK"
+
+        attachments = _fetch_upload_file_list(atch_file_id, storage_id) if atch_file_id else []
+        attachment_names = [
+            item.get("fileName", "")
+            for item in attachments
+            if isinstance(item, dict) and item.get("fileName")
+        ]
+
+        # UploadFileList에 없을 때를 대비한 보조 추출(하위 호환)
+        if not attachment_names:
+            attachment_names = _extract_attachment_names(data)
+
+        pdf_attachments = [name for name in attachment_names if name.lower().endswith(".pdf")]
         
         # 클로드가 읽기 좋게 예쁜 마크다운 문자열로 조립
         result = f"📖 [과제 상세] {title}\n"
@@ -280,8 +337,22 @@ def fetch_assignment_post_body(subj_code: str, year: str, semester: str, task_no
         result += "=" * 40 + "\n"
         result += f"📌 제출 파일 형식: {file_type}\n"
         
-        if real_file:
-            result += f"📎 첨부파일: {real_file} (첨부파일 ID: {atch_file_id})\n"
+        if attachment_names:
+            result += "📎 첨부파일 목록:\n"
+            for idx, name in enumerate(attachment_names, 1):
+                result += f"  {idx}. {name}\n"
+
+            if atch_file_id:
+                result += f"📌 첨부파일 ID: {atch_file_id}\n"
+
+            if attachments:
+                result += "📌 다운로드 가능 API: /common/file/DownloadFile/{attachId}/{fileSn}\n"
+
+            if pdf_attachments:
+                result += "✅ PDF 첨부 감지:\n"
+                for idx, name in enumerate(pdf_attachments, 1):
+                    result += f"  {idx}. {name}\n"
+                result += "🤖 다음 단계: download_klas_file 호출 시 file_name에 위 PDF 파일명을 그대로 넣으세요.\n"
         else:
             result += "📎 첨부파일: 없음\n"
             
@@ -292,33 +363,58 @@ def fetch_assignment_post_body(subj_code: str, year: str, semester: str, task_no
 
 def perform_assignment_download(subj_code: str, year: str, semester: str, task_no: int, file_name: str) -> str:
     """
-    Playwright를 이용해 상세 페이지에 접속, 특정 첨부파일 다운로드 버튼을 클릭합니다.
+    UploadFileList + DownloadFile API를 사용해 특정 첨부파일을 다운로드합니다.
     """
     global is_logged_in
     if not is_logged_in: return "❌ KLAS 로그인 필요"
 
     try:
-        with sync_playwright() as p:
-            context = _get_playwright_context_with_cookies(p)
-            page = context.new_page()
-            
-            # 1. 상세 페이지 이동 로직 (위의 fetch 함수와 동일)
-            # ... 생략 ...
-            
-            # 2. 다운로드 이벤트 대기 설정 (🌟핵심!)
-            with page.expect_download() as download_info:
-                # 3. file_name을 포함하는 텍스트 링크를 찾아서 클릭! (닌자 클릭)
-                # selector 패턴: text="파일명.pdf" 를 포함하는 <a> 태그
-                page.locator(f"a:has-text('{file_name}')").click()
-                
-            download = download_info.value
-            
-            # 4. downloads/ 폴더에 실제 파일 이름으로 저장
-            save_path = DOWNLOAD_DIR / download.suggested_filename
-            download.save_as(save_path)
-            
-            context.close()
-            return str(save_path) # 저장된 로컬 파일 경로 반환
+        data, rpt = _fetch_task_detail_data(subj_code, year, semester, task_no)
+        if not rpt:
+            return "❌ 과제 상세 내용을 불러올 수 없습니다."
+
+        atch_file_id = rpt.get("atchFileId")
+        storage_id = rpt.get("storageId") or data.get("storageId") or "CLS_PROF_TASK"
+        attachments = _fetch_upload_file_list(atch_file_id, storage_id) if atch_file_id else []
+
+        if not attachments:
+            return "❌ 첨부파일이 없습니다. (UploadFileList 결과 비어 있음)"
+
+        requested_name = file_name.strip().lower()
+        target = None
+
+        for item in attachments:
+            if not isinstance(item, dict):
+                continue
+            current_name = str(item.get("fileName", "")).strip()
+            if not current_name:
+                continue
+
+            if current_name.lower() == requested_name or requested_name in current_name.lower():
+                target = item
+                break
+
+        if target is None:
+            available_names = [str(item.get("fileName", "")) for item in attachments if isinstance(item, dict)]
+            return "❌ 요청한 파일명을 찾지 못했습니다. 사용 가능한 파일: " + ", ".join([n for n in available_names if n])
+
+        download_path = str(target.get("download", "")).strip()
+        if not download_path:
+            return "❌ 다운로드 경로가 없습니다."
+
+        download_url = requests.compat.urljoin("https://klas.kw.ac.kr", download_path)
+        download_response = agent_session.get(download_url, stream=True)
+        download_response.raise_for_status()
+
+        safe_name = Path(str(target.get("fileName", file_name))).name
+        save_path = DOWNLOAD_DIR / safe_name
+
+        with open(save_path, "wb") as f:
+            for chunk in download_response.iter_content(chunk_size=8192):
+                if chunk:
+                    f.write(chunk)
+
+        return str(save_path)
 
     except Exception as e:
         return f"❌ 다운로드 오류: {str(e)}"

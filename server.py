@@ -129,16 +129,14 @@ def get_my_seat_status(student_id: str) -> str:
     """
     return fetch_my_seat_status(student_id=student_id)
 @mcp.tool()
-def login_klas(student_id: str = "", password: str = "") -> str:
+def login_klas() -> str:
     """
     광운대학교 종합정보시스템(KLAS)에 자동 로그인하여 세션을 유지합니다.
     이 로그인 이후 시간표, 과제 등의 로그인 필수 데이터를 조회할 수 있습니다.
     
-    Args:
-        student_id: 학번(선택). 비우면 .env의 KLAS_STUDENT_ID 사용.
-        password: KLAS 비밀번호(선택). 비우면 .env의 KLAS_PASSWORD 사용.
+    이 도구는 인자를 받지 않으며, .env의 KLAS_STUDENT_ID / KLAS_PASSWORD를 사용합니다.
     """
-    return perform_klas_login(student_id=student_id, password=password)
+    return perform_klas_login()
 
 
 @mcp.tool()
@@ -165,9 +163,8 @@ def get_klas_todo_detail(subj_code: str, year: str, semester: str, task_no: int)
     """
     [경고] login_klas 사용 후 호출하세요. get_klas_todo에서 확인한 subj_code, task_no 등을 
     입력하여 해당 과제의 상세 게시글 본문과 첨부파일 목록을 긁어옵니다.
+    결과에 PDF 첨부가 보이면 download_klas_file을 이어서 호출해 파일을 다운로드하세요.
     """
-    # ⚠️ 위 klas.py 코드에서 드롭다운 조작 로직이 생략되어 dummy 데이터를 반환합니다.
-    # 실제 구현 시 가장 많은 reverse engineering이 필요한 부분입니다.
     return fetch_assignment_post_body(subj_code, year, semester, task_no)
 
 @mcp.tool()
